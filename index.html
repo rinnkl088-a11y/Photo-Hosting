@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="mn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stream - Video & Image Hosting</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-auth-compat.js"></script>
+
+    <style>
+        :root {
+            --primary: #e50914;
+            --bg: #141414;
+            --card: #1f1f1f;
+            --text: #ffffff;
+        }
+
+        body { 
+            background-color: var(--bg); 
+            color: var(--text); 
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; 
+            margin: 0; 
+            padding: 0;
+        }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+        /* --- AUTH SECTION --- */
+        .auth-wrapper {
+            max-width: 400px;
+            margin: 80px auto;
+            background: var(--card);
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+        }
+
+        .tabs { display: flex; margin-bottom: 25px; border-bottom: 2px solid #333; }
+        .tab { flex: 1; text-align: center; padding: 12px; cursor: pointer; color: #888; font-weight: bold; transition: 0.3s; }
+        .tab.active { color: white; border-bottom: 2px solid var(--primary); }
+
+        input {
+            width: 100%; padding: 14px; margin-bottom: 15px;
+            background: #333; border: none; border-radius: 4px;
+            color: white; box-sizing: border-box; font-size: 16px;
+        }
+
+        .btn {
+            width: 100%; padding: 14px; border: none; border-radius: 4px;
+            cursor: pointer; font-weight: bold; text-transform: uppercase; transition: 0.3s;
+        }
+        .btn-red { background: var(--primary); color: white; }
+        .btn-red:hover { background: #b20710; }
+
+        /* --- HEADER --- */
+        header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 20px 0; border-bottom: 1px solid #333; margin-bottom: 30px;
+        }
+        header h1 { color: var(--primary); letter-spacing: 3px; margin: 0; font-size: 30px; }
+
+        /* --- UPLOAD AREA (Admin Only) --- */
+        #adminPanel {
+            background: #1a1a1a; padding: 30px; border-radius: 12px;
+            text-align: center; margin-bottom: 40px; border: 2px dashed #333;
+        }
+        #progressContainer { display: none; margin-top: 20px; }
+        .progress-track { width: 100%; background: #333; height: 8px; border-radius: 10px; overflow: hidden; }
+        .progress-bar { width: 0%; background: var(--primary); height: 100%; transition: 0.1s; }
+
+        /* --- MEDIA GRID --- */
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 25px; }
+        .card { background: var(--card); border-radius: 8px; overflow: hidden; transition: transform 0.3s; border: 1px solid #222; }
+        .card:hover { transform: scale(1.02); }
+        .media-box { width: 100%; aspect-ratio: 16/9; background: #000; object-fit: cover; display: block; }
+        .info { padding: 15px; }
+        .actions { display: flex; gap: 8px; margin-top: 12px; }
+        
+        .btn-sm { padding: 8px 15px; font-size: 11px; background: #333; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-del { border: 1px solid var(--primary); color: var(--primary); background: transparent; }
+        .btn-del:hover { background: var(--primary); color: white; }
+    </style>
+</head>
+<body>
+
+<div id="authPage" class="auth-wrapper">
+    <div class="tabs">
+        <div class="tab active" id="loginTab" onclick="switchTab('login')">Нэвтрэх</div>
+        <div class="tab" id="signupTab" onclick="switchTab('signup')">Бүртгүүлэх</div>
+    </div>
+    <input type="email" id="email" placeholder="И-мэйл хаяг">
+    <input type="password" id="pass" placeholder="Нууц үг">
+    <button class="btn btn-red" id="authBtn" onclick="handleAuth()">Нэвтрэх</button>
+</div>
+
+<div id="mainContent" style="display: none;" class="container">
+    <header>
+        <h1>STREAM</h1>
+        <div>
+            <span id="userDisp" style="font-size: 13px; color: #aaa; margin-right: 15px;"></span>
+            <button onclick="logout()" class="btn-sm">Гарах</button>
+        </div>
+    </header>
+
+    <div id="adminPanel" style="display: none;">
+        <h3 style="margin-top:0">Шинэ файл нэмэх</h3>
+        <input type="file" id="fileInp" accept="image/*,video/*" style="background:transparent;">
+        <button class="btn btn-red" style="width: auto; padding: 12px 50px;" onclick="upload()">Хуулах</button>
+        
+        <div id="progressContainer">
+            <div class="progress-track"><div class="progress-bar" id="pBar"></div></div>
+            <p id="pText" style="font-size:14px; color:var(--primary); margin-top:10px">0%</p>
+        </div>
+    </div>
+
+    <div class="grid" id="display"></div>
+</div>
+
+<script>
+    // 1. ТОХИРГОО
+    const firebaseConfig = {
+        apiKey: "AIzaSyAD_5VpY8t3SErZ1AF963m8JTHqhctKTDk",
+        authDomain: "myvideoproject-1de8c.firebaseapp.com",
+        projectId: "myvideoproject-1de8c",
+        storageBucket: "myvideoproject-1de8c.firebasestorage.app",
+        messagingSenderId: "541325631442",
+        appId: "1:541325631442:web:ed5c52323b353dbbf5320b"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.database();
+
+    const CLOUD_NAME = "du1inlh9j";
+    const UPLOAD_PRESET = "My_video_present";
+    const ADMIN_EMAIL = "concengcon@gmail.com";
+
+    let authMode = 'login';
+
+    // 2. AUTH FUNCTIONS
+    function switchTab(mode) {
+        authMode = mode;
+        document.getElementById('loginTab').className = mode === 'login' ? 'tab active' : 'tab';
+        document.getElementById('signupTab').className = mode === 'signup' ? 'tab active' : 'tab';
+        document.getElementById('authBtn').innerText = mode === 'login' ? 'Нэвтрэх' : 'Бүртгүүлэх';
+    }
+
+    async function handleAuth() {
+        const email = document.getElementById('email').value;
+        const pass = document.getElementById('pass').value;
+        if(!email || !pass) return alert("Мэдээллээ бүрэн бөглөнө үү!");
+
+        try {
+            if (authMode === 'login') {
+                await auth.signInWithEmailAndPassword(email, pass);
+            } else {
+                await auth.createUserWithEmailAndPassword(email, pass);
+                alert("Амжилттай бүртгэгдлээ!");
+            }
+        } catch (err) { alert("Алдаа: " + err.message); }
+    }
+
+    function logout() { auth.signOut(); }
+
+    auth.onAuthStateChanged(user => {
+        if (user) {
+            document.getElementById('authPage').style.display = 'none';
+            document.getElementById('mainContent').style.display = 'block';
+            document.getElementById('userDisp').innerText = user.email;
+            document.getElementById('adminPanel').style.display = (user.email === ADMIN_EMAIL) ? 'block' : 'none';
+            loadMedia();
+        } else {
+            document.getElementById('authPage').style.display = 'block';
+            document.getElementById('mainContent').style.display = 'none';
+        }
+    });
+
+    // 3. MEDIA FUNCTIONS
+    function upload() {
+        const file = document.getElementById('fileInp').files[0];
+        if (!file) return alert("Файл сонгоно уу!");
+
+        const resourceType = file.type.startsWith('video') ? 'video' : 'image';
+        const pContainer = document.getElementById('progressContainer');
+        const pBar = document.getElementById('pBar');
+        const pText = document.getElementById('pText');
+
+        pContainer.style.display = 'block';
+        
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('upload_preset', UPLOAD_PRESET);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`, true);
+
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                pBar.style.width = percent + '%';
+                pText.innerText = `Хуулж байна: ${percent}%`;
+            }
+        };
+
+        xhr.onload = function() {
+            const res = JSON.parse(xhr.responseText);
+            if (res.secure_url) {
+                db.ref('media').push({
+                    name: file.name,
+                    url: res.secure_url,
+                    type: resourceType,
+                    timestamp: Date.now()
+                }).then(() => {
+                    alert("Амжилттай хуулагдлаа!");
+                    location.reload();
+                });
+            } else {
+                alert("Cloudinary алдаа! Preset эсвэл Cloud Name-ээ шалгана уу.");
+            }
+        };
+        xhr.send(fd);
+    }
+
+    function loadMedia() {
+        db.ref('media').on('value', snap => {
+            const container = document.getElementById('display');
+            container.innerHTML = '';
+            const isAdmin = auth.currentUser.email === ADMIN_EMAIL;
+
+            snap.forEach(child => {
+                const item = child.val();
+                const id = child.key;
+                const mediaTag = item.type === 'video' 
+                    ? `<video src="${item.url}" class="media-box" controls></video>`
+                    : `<img src="${item.url}" class="media-box" alt="image">`;
+
+                container.innerHTML += `
+                    <div class="card">
+                        ${mediaTag}
+                        <div class="info">
+                            <div style="font-size:14px; font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.name}</div>
+                            <div class="actions">
+                                <button class="btn-sm" onclick="copyLink('${item.url}')">Линк</button>
+                                ${isAdmin ? `<button class="btn-sm btn-del" onclick="deleteItem('${id}')">Устгах</button>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+        });
+    }
+
+    function copyLink(url) {
+        navigator.clipboard.writeText(url);
+        alert("Линк хуулагдлаа!");
+    }
+
+    function deleteItem(id) {
+        if(confirm("Устгахдаа итгэлтэй байна уу?")) db.ref('media').child(id).remove();
+    }
+</script>
+</body>
+</html>
